@@ -1,0 +1,111 @@
+# SLIs e SLOs do donation-service (Hot Path) como código.
+# Definição formal: docs/sre-slo.md
+#
+#   SLI 1 - Disponibilidade = requisições sem erro 5xx / total de requisições
+#           SLO: 99,5% em 30 dias  -> error budget = 0,5% (~3h36min de "falha" por mês)
+#   SLI 2 - Latência = doações (POST /donations) respondidas em até 250 ms / total
+#           SLO: 99% em 30 dias    -> error budget = 1%
+#
+# Fonte: métricas RED que o connector "spanmetrics" do OTel Collector gera a partir dos
+# spans de servidor (status ERROR = resposta 5xx, pela convenção do OpenTelemetry).
+# Health checks não entram (não viram span), então não inflam o SLI.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: donation-service-slo
+  namespace: observability
+  labels:
+    app: solidarytech
+spec:
+  groups:
+    # ---------------------------------------------------------------------------
+    # SLI 1 - Disponibilidade: taxa de erro em várias janelas (base do burn rate)
+    # ---------------------------------------------------------------------------
+    - name: slo-donation-disponibilidade
+      interval: 30s
+      rules:
+        - record: slo:donation_errors:ratio_rate5m
+          expr: |
+            (sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[5m])) or vector(0))
+            /
+            sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER"}[5m]))
+        - record: slo:donation_errors:ratio_rate30m
+          expr: |
+            (sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[30m])) or vector(0))
+            /
+            sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER"}[30m]))
+        - record: slo:donation_errors:ratio_rate1h
+          expr: |
+            (sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[1h])) or vector(0))
+            /
+            sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER"}[1h]))
+        - record: slo:donation_errors:ratio_rate6h
+          expr: |
+            (sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[6h])) or vector(0))
+            /
+            sum(rate(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER"}[6h]))
+        - record: slo:donation_errors:ratio_rate30d
+          expr: |
+            (sum(increase(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[30d])) or vector(0))
+            /
+            sum(increase(traces_span_metrics_calls_total{service_name="donation-service", span_kind="SPAN_KIND_SERVER"}[30d]))
+        - record: slo:donation_availability:ratio_rate30d
+          expr: 1 - slo:donation_errors:ratio_rate30d
+        # Burn rate = velocidade de consumo do budget (1 = gasta o budget em exatamente 30 dias).
+        - record: slo:donation_availability:burnrate1h
+          expr: slo:donation_errors:ratio_rate1h / 0.005
+        - record: slo:donation_availability:burnrate6h
+          expr: slo:donation_errors:ratio_rate6h / 0.005
+        # Quanto do error budget do mês ainda resta (1 = 100%; negativo = SLO violado).
+        - record: slo:donation_availability:error_budget_remaining
+          expr: 1 - (slo:donation_errors:ratio_rate30d / 0.005)
+
+    # ---------------------------------------------------------------------------
+    # SLI 2 - Latência: fração de doações ACIMA de 250 ms ("ruins")
+    # ---------------------------------------------------------------------------
+    - name: slo-donation-latencia
+      interval: 30s
+      rules:
+        - record: slo:donation_latency_bad:ratio_rate5m
+          expr: |
+            1 - (
+              sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations", le="250"}[5m]))
+              /
+              sum(rate(traces_span_metrics_duration_milliseconds_count{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations"}[5m]))
+            )
+        - record: slo:donation_latency_bad:ratio_rate30m
+          expr: |
+            1 - (
+              sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations", le="250"}[30m]))
+              /
+              sum(rate(traces_span_metrics_duration_milliseconds_count{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations"}[30m]))
+            )
+        - record: slo:donation_latency_bad:ratio_rate1h
+          expr: |
+            1 - (
+              sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations", le="250"}[1h]))
+              /
+              sum(rate(traces_span_metrics_duration_milliseconds_count{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations"}[1h]))
+            )
+        - record: slo:donation_latency_bad:ratio_rate6h
+          expr: |
+            1 - (
+              sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations", le="250"}[6h]))
+              /
+              sum(rate(traces_span_metrics_duration_milliseconds_count{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations"}[6h]))
+            )
+        - record: slo:donation_latency_bad:ratio_rate30d
+          expr: |
+            1 - (
+              sum(increase(traces_span_metrics_duration_milliseconds_bucket{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations", le="250"}[30d]))
+              /
+              sum(increase(traces_span_metrics_duration_milliseconds_count{service_name="donation-service", span_kind="SPAN_KIND_SERVER", span_name="POST /donations"}[30d]))
+            )
+        - record: slo:donation_latency:ratio_rate30d
+          expr: 1 - slo:donation_latency_bad:ratio_rate30d
+        - record: slo:donation_latency:burnrate1h
+          expr: slo:donation_latency_bad:ratio_rate1h / 0.01
+        - record: slo:donation_latency:burnrate6h
+          expr: slo:donation_latency_bad:ratio_rate6h / 0.01
+        - record: slo:donation_latency:error_budget_remaining
+          expr: 1 - (slo:donation_latency_bad:ratio_rate30d / 0.01)

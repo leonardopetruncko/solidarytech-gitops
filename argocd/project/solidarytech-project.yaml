@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: solidarytech
+  namespace: argocd
+spec:
+  description: Microsserviços da SolidaryTech (ngo, donation, volunteer)
+  sourceRepos:
+    - 'https://github.com/leonardopetruncko/solidarytech-gitops.git'
+  destinations:
+    - namespace: solidarytech
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  # Menor privilégio: o projeto das aplicações só cria Namespace no nível do cluster.
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

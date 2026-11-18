@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ngo-service
+  namespace: argocd
+spec:
+  project: solidarytech
+  source:
+    repoURL: 'https://github.com/leonardopetruncko/solidarytech-gitops.git'
+    targetRevision: main
+    path: apps/ngo-service
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: solidarytech
+  # O self-healer faz "rollout restart" (annotation restartedAt) e o HPA mexe nas réplicas:
+  # sem isto o selfHeal do Argo CD desfaria as duas coisas.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations."kubectl.kubernetes.io/restartedAt"
+        - .spec.replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

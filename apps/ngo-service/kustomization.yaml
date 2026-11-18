@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - db-init-job.yaml
+
+configMapGenerator:
+
+  # Scripts SQL do Job de inicialização (hook PreSync: precisa existir antes do Job).
+  - name: ngo-service-db-init
+    namespace: solidarytech
+    files:
+      - sql/bootstrap.sql
+      - sql/init.sql
+    options:
+      annotations:
+        argocd.argoproj.io/hook: PreSync
+        argocd.argoproj.io/sync-wave: "-1"
+        argocd.argoproj.io/hook-delete-policy: BeforeHookCreation

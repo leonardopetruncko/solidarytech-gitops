@@ -1,0 +1,29 @@
+# AppProject da observabilidade: precisa de recursos de cluster (CRDs, ClusterRoles),
+# enquanto o projeto das aplicações continua restrito.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  description: Prometheus, Grafana, Loki, OTel Collector, SLOs e self-healer
+  sourceRepos:
+    - 'https://github.com/leonardopetruncko/solidarytech-gitops.git'
+    - 'https://prometheus-community.github.io/helm-charts'
+    - 'https://grafana.github.io/helm-charts'
+    - 'https://open-telemetry.github.io/opentelemetry-helm-charts'
+  destinations:
+    - namespace: observability
+      server: https://kubernetes.default.svc
+    - namespace: kube-system
+      server: https://kubernetes.default.svc
+    - namespace: solidarytech
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

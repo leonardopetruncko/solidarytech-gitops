@@ -1,0 +1,39 @@
+# Observabilidade como código (sincronizada pelo Argo CD).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - slo/donation-slo-rules.yaml
+  - self-healer/self-healer.yaml
+
+configMapGenerator:
+  # Código do self-healer. O sufixo de hash reinicia o Deployment quando o código muda.
+  - name: self-healer-code
+    namespace: observability
+    files:
+      - self-healer/self_healer.py
+
+  # Regras de alerta (burn rate), contact points e policy: carregados pelo sidecar do Grafana.
+  - name: grafana-alerting-provisioning
+    namespace: observability
+    files:
+      - alerting/rules.yaml
+      - alerting/contact-points.yaml
+      - alerting/policies.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_alert: "1"
+
+  # Dashboards: pasta "SolidaryTech" no Grafana.
+  - name: grafana-dashboards-solidarytech
+    namespace: observability
+    files:
+      - dashboards/solidarytech-sre-slo.json
+      - dashboards/solidarytech-golden.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: SolidaryTech

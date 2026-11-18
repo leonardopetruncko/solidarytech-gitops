@@ -1,0 +1,19 @@
+# FinOps (guardrail): todo contêiner sem requests/limits declarados recebe estes valores.
+# Assim nenhum pod entra no cluster "sem orçamento" de CPU/memória.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: padrao-por-conteiner
+  namespace: solidarytech
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        cpu: 300m
+        memory: 256Mi
+      max:
+        cpu: "1"
+        memory: 1Gi

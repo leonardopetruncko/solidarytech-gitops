@@ -1,0 +1,96 @@
+# Cadastro de ONGs (Python/Flask + PostgreSQL)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ngo-service
+  namespace: solidarytech
+  labels:
+    app: ngo-service
+    app.kubernetes.io/part-of: solidarytech
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # deploy sem derrubar capacidade (não queima error budget)
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ngo-service
+  template:
+    metadata:
+      labels:
+        app: ngo-service
+        app.kubernetes.io/part-of: solidarytech
+        # Tags de custo também no Kubernetes (rateio por serviço no relatório de FinOps).
+        cost-center: ngo-core
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ngo-service
+          image: ECR_REGISTRY/ngo-service:inicial
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            # --- OpenTelemetry: traces e métricas para o OTel Collector do nó ---
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_SERVICE_NAME
+              value: "ngo-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              value: "true"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=solidarytech,service.version=fase5,deployment.environment=production,service.instance.id=$(POD_NAME)"
+            - name: PORT
+              value: "8081"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ngo-service-secret
+                  key: DATABASE_URL
+          # Rightsizing (FinOps): valores medidos com kubectl top / Grafana (ver docs/finops.md).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 160Mi
+            limits:
+              cpu: 300m
+              memory: 320Mi
+          # Liveness só vê o processo; readiness vê a dependência (banco/DynamoDB).
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

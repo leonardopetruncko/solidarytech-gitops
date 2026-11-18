@@ -1,0 +1,55 @@
+# Contact points: para onde o alerta vai. Os valores ${...} vêm do Secret
+# "grafana-alerting" (criado pelo scripts/subir.ps1): nenhuma chave fica no Git.
+apiVersion: 1
+contactPoints:
+  # critical: incidente (PagerDuty) + ChatOps (Discord) + remediação automática (self-healer)
+  - orgId: 1
+    name: incidente-critico
+    receivers:
+      - uid: cp-pagerduty
+        type: pagerduty
+        settings:
+          integrationKey: ${PAGERDUTY_ROUTING_KEY}
+          severity: critical
+          class: slo-burn-rate
+          component: '{{ .CommonLabels.service }}'
+          group: solidarytech
+          summary: '[SolidaryTech] {{ .CommonAnnotations.summary }}'
+
+      - uid: cp-discord-critico
+        type: discord
+        settings:
+          url: ${DISCORD_WEBHOOK_URL}
+          use_discord_username: false
+          title: '{{ if eq .Status "firing" }}🚨 INCIDENTE SEV1{{ else }}✅ RESOLVIDO{{ end }} | {{ .CommonLabels.alertname }}'
+          message: |-
+            {{ range .Alerts }}**Status:** {{ .Status | toUpper }}
+            **Serviço:** `{{ .Labels.service }}` | **SLO:** {{ .Labels.slo }}
+            **Resumo:** {{ .Annotations.summary }}
+            **Detalhes:** {{ .Annotations.description }}
+            **Ação automática:** {{ .Annotations.acao_automatica }}
+            **Início:** {{ .StartsAt.Format "02/01/2006 15:04:05" }} UTC{{ if eq .Status "resolved" }} | **Fim:** {{ .EndsAt.Format "02/01/2006 15:04:05" }} UTC{{ end }}
+            **Runbook:** {{ .Annotations.runbook_url }}
+            {{ end }}
+
+      - uid: cp-self-healer
+        type: webhook
+        settings:
+          url: http://self-healer.observability.svc.cluster.local:8080/webhook
+          httpMethod: POST
+
+  # warning: só ChatOps (vira ticket, não acorda ninguém de madrugada)
+  - orgId: 1
+    name: aviso-time
+    receivers:
+      - uid: cp-discord-aviso
+        type: discord
+        settings:
+          url: ${DISCORD_WEBHOOK_URL}
+          use_discord_username: false
+          title: '{{ if eq .Status "firing" }}⚠️ AVISO{{ else }}✅ NORMALIZADO{{ end }} | {{ .CommonLabels.alertname }}'
+          message: |-
+            {{ range .Alerts }}**Serviço:** `{{ .Labels.service }}`
+            **Resumo:** {{ .Annotations.summary }}
+            **Detalhes:** {{ .Annotations.description }}
+            {{ end }}

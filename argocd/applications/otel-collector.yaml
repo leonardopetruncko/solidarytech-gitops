@@ -1,0 +1,37 @@
+# OpenTelemetry Collector: recebe traces/métricas/logs e roteia para Datadog, Prometheus e Loki.
+# Multi-source: chart do repositório Helm oficial + values versionado neste repo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: observability
+  sources:
+    - repoURL: 'https://open-telemetry.github.io/opentelemetry-helm-charts'
+      chart: opentelemetry-collector
+      targetRevision: 0.173.1
+      helm:
+        releaseName: otel-collector
+        valueFiles:
+          - $values/observability/values/otel-collector.yaml
+    - repoURL: 'https://github.com/leonardopetruncko/solidarytech-gitops.git'
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

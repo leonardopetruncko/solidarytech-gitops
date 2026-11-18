@@ -1,0 +1,13 @@
+# FinOps (guardrail): teto de consumo do namespace. Um HPA descontrolado ou um deploy
+# errado não consegue ocupar o cluster inteiro (e gerar custo de nós extras).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: teto-solidarytech
+  namespace: solidarytech
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 3Gi
+    limits.memory: 6Gi
+    pods: "30"

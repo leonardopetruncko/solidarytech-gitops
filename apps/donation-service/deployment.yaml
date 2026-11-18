@@ -1,0 +1,120 @@
+# Doações - Hot Path (Go + PostgreSQL + SQS)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: donation-service
+  namespace: solidarytech
+  labels:
+    app: donation-service
+    app.kubernetes.io/part-of: solidarytech
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # deploy sem derrubar capacidade (não queima error budget)
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: donation-service
+  template:
+    metadata:
+      labels:
+        app: donation-service
+        app.kubernetes.io/part-of: solidarytech
+        # Tags de custo também no Kubernetes (rateio por serviço no relatório de FinOps).
+        cost-center: ngo-core
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Hot Path: as réplicas ficam em nós (e AZs) diferentes. Cair 1 nó não para as doações.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: donation-service
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: donation-service
+      containers:
+        - name: donation-service
+          image: ECR_REGISTRY/donation-service:inicial
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            # --- OpenTelemetry: traces e métricas para o OTel Collector do nó ---
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_SERVICE_NAME
+              value: "donation-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              value: "true"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=solidarytech,service.version=fase5,deployment.environment=production,service.instance.id=$(POD_NAME)"
+            - name: PORT
+              value: "8082"
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: donation-service-config
+                  key: AWS_REGION
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: donation-service-secret
+                  key: DATABASE_URL
+            - name: AWS_SQS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: donation-service-secret
+                  key: AWS_SQS_URL
+            # Token do endpoint /admin/chaos (Game Day). Sem ele, o endpoint não existe.
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: donation-service-secret
+                  key: ADMIN_TOKEN
+                  optional: true
+          # Rightsizing (FinOps): valores medidos com kubectl top / Grafana (ver docs/finops.md).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 48Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi
+          # Liveness só vê o processo; readiness vê a dependência (banco/DynamoDB).
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

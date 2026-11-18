@@ -1,0 +1,19 @@
+# Notification policy (roteamento por severidade). Contra alert fatigue:
+#  - group_by alertname+service: vários eventos do mesmo problema = UMA notificação;
+#  - repeat_interval 1h: incidente aberto não fica "gritando" a cada minuto;
+#  - critical -> PagerDuty + Discord + self-healer | warning -> só Discord.
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: aviso-time
+    group_by: [alertname, service]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 1h
+    routes:
+      - receiver: incidente-critico
+        object_matchers:
+          - ["severity", "=", "critical"]
+      - receiver: aviso-time
+        object_matchers:
+          - ["severity", "=", "warning"]

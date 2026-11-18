@@ -1,0 +1,36 @@
+name: Validação dos manifestos (GitOps)
+
+# Antes do Argo CD aplicar, o pipeline garante que tudo renderiza e é Kubernetes válido:
+# kustomize build + kubeconform (schemas) + promtool (regras de SLO).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md']
+
+jobs:
+  manifestos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar kustomize e kubeconform
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.6.0/kustomize_v5.6.0_linux_amd64.tar.gz | tar xz
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kustomize kubeconform /usr/local/bin/
+
+      - name: kustomize build + kubeconform
+        run: |
+          set -e
+          for d in apps/ngo-service apps/donation-service apps/volunteer-service observability/manifests; do
+            echo "== $d"
+            kustomize build "$d" | kubeconform -strict -summary -ignore-missing-schemas -
+          done
+          kubeconform -strict -summary apps/base argocd/project argocd/root-app.yaml -ignore-missing-schemas
+
+      - name: promtool (regras de SLO)
+        run: |
+          docker run --rm -v "$PWD:/w" --entrypoint sh mikefarah/yq:4 -c "yq '{\"groups\": .spec.groups}' /w/observability/manifests/slo/donation-slo-rules.yaml" > /tmp/rules.yaml
+          docker run --rm -v /tmp/rules.yaml:/r.yaml --entrypoint promtool prom/prometheus:latest check rules /r.yaml

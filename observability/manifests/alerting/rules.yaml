@@ -1,0 +1,213 @@
+# Alertas da SolidaryTech (Grafana Alerting), provisionados como código.
+# Obs.: neste arquivo só ${VAR} sofre interpolação de ambiente; os templates usam $values.
+#
+# Alertas por BURN RATE do error budget (Google SRE Workbook, multiwindow multi-burn-rate):
+#   - burn rate 14,4x em 1h E em 5min  -> queimaria 2% do budget do mês em 1h  -> PAGE (critical)
+#   - burn rate 6x    em 6h E em 30min -> queimaria 5% do budget em 6h          -> TICKET (warning)
+# A janela curta confirma que o problema AINDA está acontecendo (o alerta para logo
+# depois da correção) e a longa evita alerta por pico isolado (sem alert fatigue).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: solidarytech-slo
+    folder: SolidaryTech
+    interval: 30s
+    rules:
+      # ---------------------------------------------------------------- disponibilidade
+      - uid: donation-slo-disp-rapido
+        title: donation-service - error budget de disponibilidade queimando rápido
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (slo:donation_availability:burnrate1h > 14.4)
+                and on()
+                ((slo:donation_errors:ratio_rate5m / 0.005) > 14.4)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        labels:
+          severity: critical
+          slo: disponibilidade
+          service: donation-service
+          namespace: solidarytech
+          deployment: donation-service
+        annotations:
+          summary: donation-service queimando o error budget de disponibilidade a {{ printf "%.0f" $values.B.Value }}x
+          description: >-
+            Burn rate de {{ printf "%.1f" $values.B.Value }}x na última hora (limite 14,4x):
+            nesse ritmo o error budget do mês (0,5% = ~3h36min) acaba em menos de 2 dias.
+            Doações estão falhando com HTTP 5xx.
+          acao_automatica: self-healer executa rollout restart em deployment/donation-service (cooldown 5 min)
+          runbook_url: https://github.com/leonardopetruncko/solidarytech-gitops/blob/main/docs/runbook-donation.md
+
+      - uid: donation-slo-disp-lento
+        title: donation-service - error budget de disponibilidade queimando (lento)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (slo:donation_availability:burnrate6h > 6)
+                and on()
+                ((slo:donation_errors:ratio_rate30m / 0.005) > 6)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          slo: disponibilidade
+          service: donation-service
+          namespace: solidarytech
+        annotations:
+          summary: donation-service com burn rate de {{ printf "%.1f" $values.B.Value }}x nas últimas 6h
+          description: Degradação lenta e contínua. Não acorda ninguém, mas vira ticket para o time no horário comercial.
+          runbook_url: https://github.com/leonardopetruncko/solidarytech-gitops/blob/main/docs/runbook-donation.md
+
+      # ---------------------------------------------------------------- latência
+      - uid: donation-slo-latencia-rapido
+        title: donation-service - error budget de latência queimando rápido
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (slo:donation_latency:burnrate1h > 14.4)
+                and on()
+                ((slo:donation_latency_bad:ratio_rate5m / 0.01) > 14.4)
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        labels:
+          severity: critical
+          slo: latencia
+          service: donation-service
+          namespace: solidarytech
+          deployment: donation-service
+        annotations:
+          summary: doações lentas - burn rate de latência em {{ printf "%.0f" $values.B.Value }}x
+          description: >-
+            Mais de 14,4% das doações acima de 250 ms na última hora (SLO: 99% em até 250 ms).
+            O doador espera e pode desistir da doação.
+          acao_automatica: self-healer executa rollout restart em deployment/donation-service (cooldown 5 min)
+          runbook_url: https://github.com/leonardopetruncko/solidarytech-gitops/blob/main/docs/runbook-donation.md
+
+      # ---------------------------------------------------------------- saturação / capacidade
+      - uid: donation-sem-replicas
+        title: donation-service - nenhuma réplica disponível
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: max(kube_deployment_status_replicas_available{namespace="solidarytech", deployment="donation-service"})
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        labels:
+          severity: critical
+          service: donation-service
+          namespace: solidarytech
+        annotations:
+          summary: donation-service sem nenhuma réplica pronta - doações paradas
+          description: Nenhum pod do donation-service está Ready. Verifique o banco (readiness) e os eventos do deployment.
+          runbook_url: https://github.com/leonardopetruncko/solidarytech-gitops/blob/main/docs/runbook-donation.md
+
+      # ---------------------------------------------------------------- FinOps
+      - uid: finops-quota-namespace
+        title: FinOps - namespace solidarytech perto do teto de CPU/memória
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                100 * max(
+                  kube_resourcequota{namespace="solidarytech", type="used"}
+                  / on(resource, resourcequota, namespace)
+                  kube_resourcequota{namespace="solidarytech", type="hard"}
+                )
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: warning
+          service: finops
+          namespace: solidarytech
+        annotations:
+          summary: namespace solidarytech usando {{ printf "%.0f" $values.B.Value }}% do ResourceQuota
+          description: O HPA pode não conseguir escalar e o cluster pode precisar de mais nós (custo). Revisar rightsizing.
