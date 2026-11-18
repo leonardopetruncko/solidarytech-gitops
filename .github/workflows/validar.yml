@@ -28,7 +28,7 @@ jobs:
             echo "== $d"
             kustomize build "$d" | kubeconform -strict -summary -ignore-missing-schemas -
           done
-          kubeconform -strict -summary apps/base argocd/project argocd/root-app.yaml -ignore-missing-schemas
+          kubeconform -strict -summary -ignore-missing-schemas apps/base argocd/project argocd/root-app.yaml
 
       - name: promtool (regras de SLO)
         run: |

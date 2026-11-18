@@ -57,6 +57,48 @@ groups:
           acao_automatica: self-healer executa rollout restart em deployment/donation-service (cooldown 5 min)
           runbook_url: https://github.com/leonardopetruncko/solidarytech-gitops/blob/main/docs/runbook-donation.md
 
+      # Falha AGUDA: a regra de 1h acima é precisa, mas com 15% de erro leva ~25 min para
+      # disparar (precisa acumular 2% do budget). Para incidente agudo, a janela de 5 min
+      # confirmada por 2 min seguidos ("for") detecta em ~3 min sem disparar por pico isolado.
+      - uid: donation-slo-disp-agudo
+        title: donation-service - falha aguda (burn rate 14,4x sustentado por 2 min)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: (slo:donation_errors:ratio_rate5m / 0.005) > 14.4
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: critical
+          slo: disponibilidade
+          service: donation-service
+          namespace: solidarytech
+          deployment: donation-service
+        annotations:
+          summary: donation-service com falha aguda - burn rate de {{ printf "%.0f" $values.B.Value }}x nos últimos 5 min
+          description: >-
+            Mais de 7,2% das requisições do Hot Path falhando com HTTP 5xx há 2 minutos seguidos.
+            Nesse ritmo o error budget do mês (0,5%) acaba em menos de 2 dias.
+          acao_automatica: self-healer executa rollout restart em deployment/donation-service (cooldown 5 min)
+          runbook_url: https://github.com/leonardopetruncko/solidarytech-gitops/blob/main/docs/runbook-donation.md
+
       - uid: donation-slo-disp-lento
         title: donation-service - error budget de disponibilidade queimando (lento)
         condition: C

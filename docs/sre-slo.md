@@ -50,6 +50,7 @@ Burn rate = velocidade de consumo do error budget. **1x** gasta o budget em exat
 
 | Alerta | Condição | Significado | Destino |
 |---|---|---|---|
+| **Falha aguda** (disponibilidade) | burn rate > **14,4x** em 5 min, **sustentado por 2 min** | incidente agudo (ex.: 15% de erro) detectado em ~3 min | PagerDuty + Discord + self-healer |
 | Queima rápida (disponibilidade) | burn rate > **14,4x** em 1h **e** em 5 min | 2% do budget do mês em 1 hora | PagerDuty + Discord + self-healer |
 | Queima rápida (latência) | burn rate > **14,4x** em 1h **e** em 5 min | idem, para lentidão | PagerDuty + Discord + self-healer |
 | Queima lenta (disponibilidade) | burn rate > **6x** em 6h **e** em 30 min | 5% do budget em 6 horas | Discord (ticket) |
@@ -75,4 +76,16 @@ A janela longa evita alertar por pico isolado (sem alert fatigue). A janela curt
 | Correção | `kubectl` manual | self-healer faz o rollout restart sozinho (~10 s) |
 | Verificação | "parece que voltou" | alerta RESOLVED + **MTTR calculado e postado** pelo self-healer |
 
-Resultado medido nos testes: **MTTR de ~2 a 3 min**, contra horas no cenário sem observabilidade.
+### Resultado medido (Game Day de 18/11/2026, 15% das requisições com HTTP 500)
+
+| Marco (horário de Brasília) | Evento |
+|---|---|
+| 00:55:12 | falha injetada (`simular-falha.ps1`): /health continua 200 |
+| minutos depois | **Datadog Watchdog** abre sozinho o story *"Error rate increased on the POST resource in donation-service"* (AIOps, sem threshold configurado) |
+| 01:02 | alerta lento (6x em 6h) → aviso no Discord |
+| 01:04:10 | alerta rápido (14,4x em 1h e 5 min) FIRING → PagerDuty + Discord |
+| 01:04:24 | self-healer recebe o webhook e faz o rollout restart |
+| 01:04:39 | rollout concluído em **15 s** (2/2 pods novos) |
+| 01:08:24 | alerta RESOLVED: **MTTR de 4 min (240 s)**, calculado e postado pelo self-healer |
+
+**Lição aprendida (post-mortem do teste):** o Watchdog percebeu a anomalia vários minutos antes da regra de SLO de 1h, que precisa acumular 2% do budget antes de disparar. Daí a regra **"falha aguda"** (5 min sustentado por 2 min), que leva a detecção para ~3 min. O ciclo completo, da falha à normalização, cai para **~7 min**, contra horas no cenário sem observabilidade.
