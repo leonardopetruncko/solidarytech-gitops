@@ -13,7 +13,7 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0   # deploy sem derrubar capacidade (não queima error budget)
+      maxUnavailable: 0 # deploy sem derrubar capacidade (não queima error budget)
       maxSurge: 1
   selector:
     matchLabels:
@@ -48,7 +48,7 @@ spec:
               app: donation-service
       containers:
         - name: donation-service
-          image: ECR_REGISTRY/donation-service:inicial
+          image: 058264068417.dkr.ecr.us-east-1.amazonaws.com/donation-service:v1.0.0-bf18745
           ports:
             - name: http
               containerPort: 8082
