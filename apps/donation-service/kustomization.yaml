@@ -9,10 +9,6 @@ resources:
   - db-init-job.yaml
 
 configMapGenerator:
-  - name: donation-service-config
-    namespace: solidarytech
-    literals:
-      - AWS_REGION=us-east-1
   # Scripts SQL do Job de inicialização (hook PreSync: precisa existir antes do Job).
   - name: donation-service-db-init
     namespace: solidarytech

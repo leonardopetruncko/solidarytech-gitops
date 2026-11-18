@@ -10,5 +10,4 @@ configMapGenerator:
   - name: volunteer-service-config
     namespace: solidarytech
     literals:
-      - AWS_REGION=us-east-1
       - AWS_DYNAMODB_TABLE=SolidaryTechVolunteers

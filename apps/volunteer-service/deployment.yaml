@@ -54,10 +54,11 @@ spec:
               value: "service.namespace=solidarytech,service.version=fase5,deployment.environment=production,service.instance.id=$(POD_NAME)"
             - name: PORT
               value: "8083"
+            # Região do site ativo (primário us-east-1 ou DR us-west-2), criada pelo subir.ps1/dr.ps1.
             - name: AWS_REGION
               valueFrom:
                 configMapKeyRef:
-                  name: volunteer-service-config
+                  name: solidarytech-site
                   key: AWS_REGION
             - name: AWS_DYNAMODB_TABLE
               valueFrom:
